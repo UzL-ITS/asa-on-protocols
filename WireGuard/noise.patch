@@ -6,7 +6,7 @@ index baf455e..1705144 100644
  #include <linux/highmem.h>
  #include <crypto/algapi.h>
  
-+//******** ITS modified **********************************************************************************************//
++//******** ASA modified **********************************************************************************************//
 +#define NUMBER_OF_BITS 2
 +//#define REJECTION_SAMPLING_ON_INIT
 +#define REJECTION_SAMPLING_ON_RESPONSE
@@ -29,7 +29,7 @@ index baf455e..1705144 100644
      u8 key[NOISE_SYMMETRIC_KEY_LEN];
      bool ret = false;
 +#ifdef REJECTION_SAMPLING_ON_INIT
-+    //******** ITS modified ******************************************************************************************//
++    //******** ASA modified ******************************************************************************************//
 +    u32 counter;
 +    //****************************************************************************************************************//
 +#endif
@@ -41,7 +41,7 @@ index baf455e..1705144 100644
  
      /* e */
 +#ifdef REJECTION_SAMPLING_ON_INIT
-+    //******** ITS modified ******************************************************************************************//
++    //******** ASA modified ******************************************************************************************//
 +    for (counter = 0; counter < ((1<<NUMBER_OF_BITS)*128); counter++) {
 +        curve25519_generate_secret(handshake->ephemeral_private);
 +        if (!curve25519_generate_public(dst->unencrypted_ephemeral,
@@ -79,7 +79,7 @@ index baf455e..1705144 100644
  	u8 key[NOISE_SYMMETRIC_KEY_LEN];
  	bool ret = false;
 +#ifdef REJECTION_SAMPLING_ON_RESPONSE
-+    //******** ITS modified ******************************************************************************************//
++    //******** ASA modified ******************************************************************************************//
 +    u32 counter;
 +    //****************************************************************************************************************//
 +#endif
@@ -91,7 +91,7 @@ index baf455e..1705144 100644
  
  	/* e */
 +#ifdef REJECTION_SAMPLING_ON_RESPONSE
-+    //******** ITS modified ******************************************************************************************//
++    //******** ASA modified ******************************************************************************************//
 +    for (counter = 0; counter < ((1<<NUMBER_OF_BITS)*128); counter++) {
 +        curve25519_generate_secret(handshake->ephemeral_private);
 +        if (!curve25519_generate_public(dst->unencrypted_ephemeral,
