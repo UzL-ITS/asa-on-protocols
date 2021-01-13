@@ -1,0 +1,164 @@
+diff --git a/src/send.c b/src/send.c
+index 828b086..453a3c1 100644
+--- a/src/send.c
++++ b/src/send.c
+@@ -19,8 +19,19 @@
+ #include <net/udp.h>
+ #include <net/sock.h>
+ 
++//******** ITS measurements ******************************************************************************************//
++//#define ITS_MEASURE_TIME_WITH_SEND
++#define ITS_MEASURE_TIME_TO_CREATE
++//********************************************************************************************************************//
++
+ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
+ {
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++    bool temp;
++    u32 startTime, endTime;
++    //****************************************************************************************************************//
++#endif
+ 	struct message_handshake_initiation packet;
+ 
+ 	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
+@@ -32,7 +43,20 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
+ 			    peer->device->dev->name, peer->internal_id,
+ 			    &peer->endpoint.addr);
+ 
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++//    for(i = 0; i < 1000; i++) {
++        startTime = ktime_get_raw();
++        temp = wg_noise_handshake_create_initiation(&packet, &peer->handshake);
++        endTime = ktime_get_raw();
++        printk(KERN_ALERT "WireGuard performance (response_time): Time=%i\n", endTime - startTime);
++//    }
++    if (temp){
++#else
++    //******** Original code *****************************************************************************************//
+ 	if (wg_noise_handshake_create_initiation(&packet, &peer->handshake)) {
++	//****************************************************************************************************************//
++#endif
+ 		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+ 		wg_timers_any_authenticated_packet_traversal(peer);
+ 		wg_timers_any_authenticated_packet_sent(peer);
+@@ -48,8 +72,18 @@ void wg_packet_handshake_send_worker(struct work_struct *work)
+ {
+ 	struct wg_peer *peer = container_of(work, struct wg_peer,
+ 					    transmit_handshake_work);
+-
++#ifdef ITS_MEASURE_TIME_WITH_SEND
++    //******** ITS measurements **************************************************************************************//
++    u32 startTime, endTime;
++    startTime = ktime_get_raw();
+     wg_packet_send_handshake_initiation(peer);
++    endTime = ktime_get_raw();
++    printk(KERN_ALERT "WireGuard performance (init_time): Time=%i\n", endTime - startTime);
++#else
++    //******** ITS original code *************************************************************************************//
++    wg_packet_send_handshake_initiation(peer);
++	//****************************************************************************************************************//
++#endif
+ 	wg_peer_put(peer);
+ }
+ 
+@@ -86,13 +120,52 @@ out:
+ void wg_packet_send_handshake_response(struct wg_peer *peer)
+ {
+     struct message_handshake_response packet;
++#ifdef ITS_MEASURE_TIME_WITH_SEND
++    //******** ITS measurements **************************************************************************************//
++    u32 startTime = 0;
++    u32 endTime = 0;
++    startTime = ktime_get_raw();
++    //****************************************************************************************************************//
++#endif
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++    bool temp;
++    u32 startTime = 0;
++    u32 endTime = 0;
++//    u32 i,j;
++//    u8 chainingKeyBackup[32];
++    //****************************************************************************************************************//
++#endif
+ 
+     atomic64_set(&peer->last_sent_handshake, ktime_get_coarse_boottime_ns());
+     net_dbg_ratelimited("%s: Sending handshake response to peer %llu (%pISpfsc)\n",
+                         peer->device->dev->name, peer->internal_id,
+                         &peer->endpoint.addr);
+ 
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++    // backup chaining key
++//    for(i = 0; i < 32; i++)
++//        chainingKeyBackup[i] = peer->handshake.chaining_key[i];
++
++//    for(i = 0; i < 1000; i++) {
++        // reset state
++//        peer->handshake.state = HANDSHAKE_CONSUMED_INITIATION;
++        // reset chaining key
++//        for(j = 0; j < 32; j++)
++//            peer->handshake.chaining_key[j] = chainingKeyBackup[j];
++        startTime = ktime_get_raw();
++        temp = wg_noise_handshake_create_response(&packet, &peer->handshake);
++        endTime = ktime_get_raw();
++        printk(KERN_ALERT "WireGuard performance (response_time): Time=%i\n", endTime - startTime);
++//    }
++    if (temp){
++#else
++    //******** Original code *****************************************************************************************//
+ 	if (wg_noise_handshake_create_response(&packet, &peer->handshake)) {
++	//****************************************************************************************************************//
++#endif
++
+         wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+         if (wg_noise_handshake_begin_session(&peer->handshake,
+                                              &peer->keypairs)) {
+@@ -106,18 +179,45 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
+                                           HANDSHAKE_DSCP);
+         }
+     }
++
++#ifdef ITS_MEASURE_TIME_WITH_SEND
++    //******** ITS measurements **************************************************************************************//
++    endTime = ktime_get_raw();
++    printk(KERN_ALERT
++    "WireGuard performance (response_time): Time=%i\n", endTime - startTime);
++    //****************************************************************************************************************//
++#endif
+ }
+ 
+ void wg_packet_send_handshake_cookie(struct wg_device *wg,
+ 				     struct sk_buff *initiating_skb,
+ 				     __le32 sender_index)
+ {
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++    u32 startTime, endTime;
++    //****************************************************************************************************************//
++#endif
++
+ 	struct message_handshake_cookie packet;
+ 
+ 	net_dbg_skb_ratelimited("%s: Sending cookie response for denied handshake message for %pISpfsc\n",
+ 				wg->dev->name, initiating_skb);
++
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++    startTime = ktime_get_raw();
++    //****************************************************************************************************************//
++#endif
+ 	wg_cookie_message_create(&packet, initiating_skb, sender_index,
+ 				 &wg->cookie_checker);
++#ifdef ITS_MEASURE_TIME_TO_CREATE
++    //******** ITS measurements **************************************************************************************//
++    endTime = ktime_get_raw();
++    printk(KERN_ALERT "WireGuard performance (cookie_create_time): Time=%i\n", endTime - startTime);
++    //****************************************************************************************************************//
++#endif
++
+ 	wg_socket_send_buffer_as_reply_to_skb(wg, initiating_skb, &packet,
+ 					      sizeof(packet));
+ }
