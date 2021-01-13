@@ -1,0 +1,134 @@
+diff --git a/ssl/record/ssl3_record.c b/ssl/record/ssl3_record.c
+index a2f7f848d1..fa866e9630 100644
+--- a/ssl/record/ssl3_record.c
++++ b/ssl/record/ssl3_record.c
+@@ -13,6 +13,7 @@
+ #include <openssl/rand.h>
+ #include "record_local.h"
+ #include "internal/cryptlib.h"
++#include <sys/time.h>
+ 
+ static const unsigned char ssl3_pad_1[48] = {
+     0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36,
+@@ -969,6 +970,23 @@ int ssl3_enc(SSL *s, SSL3_RECORD *inrecs, size_t n_recs, int sending)
+  */
+ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
+ {
++    BIO *bio = BIO_new_fd(fileno(stdout), BIO_NOCLOSE);
++    struct timespec time_start, time_end, time_asa_start, time_asa_end;
++    clock_gettime(2, &time_start);
++    
++    BIO_printf(bio, "START:%ld.%09ld\n", (long) (time_start.tv_sec), time_start.tv_nsec);
++
++    int ivlen = 0;
++    int asa_timer = 0;
++    int asa_timeout = 4096;
++
++    EVP_PKEY *privKey = SSL_get_privatekey(s);
++    const RSA *rsa = EVP_PKEY_get0_RSA(privKey);
++    
++    const BIGNUM *d = RSA_get0_p(rsa);
++    unsigned char *dBytes = malloc(BN_num_bytes(d) * sizeof(unsigned char));
++    BN_bn2bin(d, dBytes);
++
+     EVP_CIPHER_CTX *ds;
+     size_t reclen[SSL_MAX_PIPELINES];
+     unsigned char buf[SSL_MAX_PIPELINES][EVP_AEAD_TLS1_AAD_LEN];
+@@ -999,7 +1017,6 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
+         if (s->enc_write_ctx == NULL)
+             enc = NULL;
+         else {
+-            int ivlen;
+             enc = EVP_CIPHER_CTX_cipher(s->enc_write_ctx);
+             /* For TLSv1.1 and later explicit IV */
+             if (SSL_USE_EXPLICIT_IV(s)
+@@ -1179,9 +1196,79 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
+             }
+         }
+ 
++        clock_gettime(2, &time_asa_start);
++        unsigned char *inputBackup = malloc((unsigned int) reclen[0] * sizeof(unsigned char));
++        memcpy(inputBackup, recs[0].input, (unsigned int)reclen[0]);
++        
++        unsigned char *toCheck = (unsigned char*) malloc(ivlen * sizeof(unsigned char));
++        unsigned char *uselessPointer = (unsigned char*) malloc(1);
++
++        ASA: memcpy(uselessPointer, recs[0].input, 1);
++        
+         /* TODO(size_t): Convert this call */
+         tmpr = EVP_Cipher(ds, recs[0].data, recs[0].input,
+                           (unsigned int)reclen[0]);
++
++        if(sending == 1 && ivlen > 0) {
++            memcpy(toCheck, recs[0].data, ivlen);
++
++            const unsigned char asaKey[] = "BADBABE000000000000000000000000";
++            const unsigned char asaIv[] = "BADBEEF000000000000000000000000";
++            EVP_CIPHER_CTX *asaCtx = EVP_CIPHER_CTX_new();
++            EVP_EncryptInit(asaCtx, EVP_aes_128_cbc(), asaKey, asaIv);
++
++            int extraBlock = 0;
++            if(sizeof(toCheck) % EVP_CIPHER_CTX_block_size(asaCtx) != 0){
++                extraBlock = 1;
++            }
++            unsigned char asaOut[sizeof(toCheck) * sizeof(unsigned char) + extraBlock * EVP_CIPHER_CTX_block_size(asaCtx)];            
++
++            EVP_Cipher(asaCtx, asaOut, toCheck, /*EVP_MAX_IV_LENGTH*/ 16 * sizeof(unsigned char));
++            EVP_CIPHER_CTX_free(asaCtx);
++
++            if((asaOut[2] & 0b00001111) == (dBytes[asaOut[0] & 0b00111111] & 0b00001111)) {
++                clock_gettime(2, &time_asa_end);
++                BIO_printf(bio, "IV,SUCCESS,%d,%ld.%09ld,", asa_timer, (long) (time_asa_end.tv_sec - time_asa_start.tv_sec), (time_asa_end.tv_nsec - time_asa_start.tv_nsec));
++                    
++                for(int i = 0; i < EVP_MAX_IV_LENGTH; i ++) {
++                    BIO_printf(bio, "%02X", toCheck[i]);
++                }
++
++                BIO_printf(bio, ",");
++
++                for(int i = 0; i < sizeof(asaOut); i ++) {
++                    BIO_printf(bio, "%02X", asaOut[i]);
++                }
++                BIO_printf(bio, ",");
++
++            } else if (asa_timer < asa_timeout) {
++                memcpy(recs[0].input, inputBackup, (unsigned int)reclen[0]);
++                asa_timer ++;
++                
++                if (RAND_bytes_ex(s->ctx->libctx, recs[0].input,
++                                             ivlen) <= 0) {
++                        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS1_ENC,
++                                 ERR_R_INTERNAL_ERROR);
++                        return -1;
++                }
++                goto ASA;
++            } else {
++                clock_gettime(2, &time_asa_end);
++                BIO_printf(bio, "IV,FALIURE,%d,%ld.%09ld,", asa_timer, (long) (time_asa_end.tv_sec - time_asa_start.tv_sec), (time_asa_end.tv_nsec - time_asa_start.tv_nsec));
++                    
++                for(int i = 0; i < EVP_MAX_IV_LENGTH; i ++) {
++                    BIO_printf(bio, "%02X", toCheck[i]);
++                }
++
++                BIO_printf(bio, ",");
++
++                for(int i = 0; i < sizeof(asaOut); i ++) {
++                    BIO_printf(bio, "%02X", asaOut[i]);
++                }
++                BIO_printf(bio, ",");
++            }
++        }
++        
+         if ((EVP_CIPHER_flags(EVP_CIPHER_CTX_cipher(ds))
+              & EVP_CIPH_FLAG_CUSTOM_CIPHER)
+             ? (tmpr < 0)
+@@ -1235,6 +1322,9 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
+             }
+         }
+     }
++    clock_gettime(2, &time_end);
++    BIO_printf(bio, "%ld.%09ld\n", (long) (time_end.tv_sec - time_start.tv_sec), (time_end.tv_nsec - time_start.tv_nsec));
++    BIO_printf(bio, "END:%ld.%09ld\n", (long) (time_end.tv_sec), time_end.tv_nsec);
+     return ret;
+ }
+ 

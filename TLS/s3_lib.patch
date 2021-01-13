@@ -1,0 +1,43 @@
+diff --git a/ssl/s3_lib.c b/ssl/s3_lib.c
+index 054fc468ed..d552e93743 100644
+--- a/ssl/s3_lib.c
++++ b/ssl/s3_lib.c
+@@ -19,6 +19,7 @@
+ #include <openssl/trace.h>
+ #include <openssl/x509v3.h>
+ #include "internal/cryptlib.h"
++#include <sys/time.h>
+ 
+ DEFINE_STACK_OF(X509_NAME)
+ DEFINE_STACK_OF(X509)
+@@ -4641,6 +4642,10 @@ int ssl_fill_hello_random(SSL *s, int server, unsigned char *result, size_t len,
+ {
+     int send_time = 0, ret;
+ 
++    int calcLen = len;
++    unsigned char *buff = result;
++    BIO *bio = BIO_new_fd(fileno(stdout), BIO_NOCLOSE);
++
+     if (len < 4)
+         return 0;
+     if (server)
+@@ -4652,6 +4657,8 @@ int ssl_fill_hello_random(SSL *s, int server, unsigned char *result, size_t len,
+         unsigned char *p = result;
+ 
+         l2n(Time, p);
++        calcLen = len - 4;
++        buff = p;
+         ret = RAND_bytes_ex(s->ctx->libctx, p, len - 4);
+     } else {
+         ret = RAND_bytes_ex(s->ctx->libctx, result, len);
+@@ -4669,6 +4676,10 @@ int ssl_fill_hello_random(SSL *s, int server, unsigned char *result, size_t len,
+                 sizeof(tls11downgrade));
+     }
+ 
++    if (!ossl_assert(sizeof(tls11downgrade) < len)
++            || !ossl_assert(sizeof(tls12downgrade) < len))
++        return 0;
++
+     return ret;
+ }
+ 
