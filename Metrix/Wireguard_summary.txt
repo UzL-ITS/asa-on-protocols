@@ -1,0 +1,14 @@
+     Hash               Time           Changed Files      Additions      
+ Length:1251        Length:1251        Min.   : 1.000   Min.   :    0.0  
+ Class :character   Class :character   1st Qu.: 1.000   1st Qu.:    2.0  
+ Mode  :character   Mode  :character   Median : 1.000   Median :    5.0  
+                                       Mean   : 2.777   Mean   :  110.9  
+                                       3rd Qu.: 2.000   3rd Qu.:   20.0  
+                                       Max.   :83.000   Max.   :13138.0  
+   Deletions      
+ Min.   :   0.00  
+ 1st Qu.:   1.00  
+ Median :   2.00  
+ Mean   :  68.24  
+ 3rd Qu.:  11.00  
+ Max.   :9458.00 
