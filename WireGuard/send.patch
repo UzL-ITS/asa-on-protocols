@@ -1,5 +1,5 @@
 diff --git a/src/send.c b/src/send.c
-index 828b086..453a3c1 100644
+index 55bb0c9..d2d597d 100644
 --- a/src/send.c
 +++ b/src/send.c
 @@ -19,8 +19,19 @@
@@ -7,8 +7,8 @@ index 828b086..453a3c1 100644
  #include <net/sock.h>
  
 +//******** ASA measurements ******************************************************************************************//
-+//#define ASA_MEASURE_TIME_WITH_SEND
-+#define ASA_MEASURE_TIME_TO_CREATE
++#define ASA_MEASURE_TIME_WITH_SEND
++//#define ASA_MEASURE_TIME_TO_CREATE
 +//********************************************************************************************************************//
 +
  static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
@@ -22,10 +22,12 @@ index 828b086..453a3c1 100644
  	struct message_handshake_initiation packet;
  
  	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
-@@ -32,7 +43,20 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
+@@ -31,8 +42,21 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
+ 	net_dbg_ratelimited("%s: Sending handshake initiation to peer %llu (%pISpfsc)\n",
  			    peer->device->dev->name, peer->internal_id,
  			    &peer->endpoint.addr);
- 
+-
++				
 +#ifdef ASA_MEASURE_TIME_TO_CREATE
 +    //******** ASA measurements **************************************************************************************//
 +//    for(i = 0; i < 1000; i++) {
@@ -43,16 +45,16 @@ index 828b086..453a3c1 100644
  		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
  		wg_timers_any_authenticated_packet_traversal(peer);
  		wg_timers_any_authenticated_packet_sent(peer);
-@@ -48,8 +72,18 @@ void wg_packet_handshake_send_worker(struct work_struct *work)
- {
+@@ -49,7 +73,18 @@ void wg_packet_handshake_send_worker(struct work_struct *work)
  	struct wg_peer *peer = container_of(work, struct wg_peer,
  					    transmit_handshake_work);
--
+ 
+-	wg_packet_send_handshake_initiation(peer);
 +#ifdef ASA_MEASURE_TIME_WITH_SEND
 +    //******** ASA measurements **************************************************************************************//
 +    u32 startTime, endTime;
 +    startTime = ktime_get_raw();
-     wg_packet_send_handshake_initiation(peer);
++    wg_packet_send_handshake_initiation(peer);
 +    endTime = ktime_get_raw();
 +    printk(KERN_ALERT "WireGuard performance (init_time): Time=%i\n", endTime - startTime);
 +#else
@@ -63,10 +65,10 @@ index 828b086..453a3c1 100644
  	wg_peer_put(peer);
  }
  
-@@ -86,13 +120,52 @@ out:
+@@ -86,13 +121,51 @@ out:
  void wg_packet_send_handshake_response(struct wg_peer *peer)
  {
-     struct message_handshake_response packet;
+ 	struct message_handshake_response packet;
 +#ifdef ASA_MEASURE_TIME_WITH_SEND
 +    //******** ASA measurements **************************************************************************************//
 +    u32 startTime = 0;
@@ -84,10 +86,10 @@ index 828b086..453a3c1 100644
 +    //****************************************************************************************************************//
 +#endif
  
-     atomic64_set(&peer->last_sent_handshake, ktime_get_coarse_boottime_ns());
-     net_dbg_ratelimited("%s: Sending handshake response to peer %llu (%pISpfsc)\n",
-                         peer->device->dev->name, peer->internal_id,
-                         &peer->endpoint.addr);
+ 	atomic64_set(&peer->last_sent_handshake, ktime_get_coarse_boottime_ns());
+ 	net_dbg_ratelimited("%s: Sending handshake response to peer %llu (%pISpfsc)\n",
+ 			    peer->device->dev->name, peer->internal_id,
+ 			    &peer->endpoint.addr);
  
 +#ifdef ASA_MEASURE_TIME_TO_CREATE
 +    //******** ASA measurements **************************************************************************************//
@@ -112,15 +114,13 @@ index 828b086..453a3c1 100644
  	if (wg_noise_handshake_create_response(&packet, &peer->handshake)) {
 +	//****************************************************************************************************************//
 +#endif
-+
-         wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
-         if (wg_noise_handshake_begin_session(&peer->handshake,
-                                              &peer->keypairs)) {
-@@ -106,18 +179,45 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
-                                           HANDSHAKE_DSCP);
-         }
-     }
-+
+ 		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+ 		if (wg_noise_handshake_begin_session(&peer->handshake,
+ 						     &peer->keypairs)) {
+@@ -106,18 +179,42 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
+ 						      HANDSHAKE_DSCP);
+ 		}
+ 	}
 +#ifdef ASA_MEASURE_TIME_WITH_SEND
 +    //******** ASA measurements **************************************************************************************//
 +    endTime = ktime_get_raw();
@@ -144,7 +144,6 @@ index 828b086..453a3c1 100644
  
  	net_dbg_skb_ratelimited("%s: Sending cookie response for denied handshake message for %pISpfsc\n",
  				wg->dev->name, initiating_skb);
-+
 +#ifdef ASA_MEASURE_TIME_TO_CREATE
 +    //******** ASA measurements **************************************************************************************//
 +    startTime = ktime_get_raw();
@@ -158,7 +157,6 @@ index 828b086..453a3c1 100644
 +    printk(KERN_ALERT "WireGuard performance (cookie_create_time): Time=%i\n", endTime - startTime);
 +    //****************************************************************************************************************//
 +#endif
-+
  	wg_socket_send_buffer_as_reply_to_skb(wg, initiating_skb, &packet,
  					      sizeof(packet));
  }
